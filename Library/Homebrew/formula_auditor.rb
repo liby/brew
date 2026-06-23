@@ -648,6 +648,24 @@ module Homebrew
     end
 
     sig { void }
+    def audit_duplicate_formula
+      return unless @core_tap
+      return unless @new_formula
+
+      formula_url = formula.stable&.url
+      return unless formula_url
+
+      formula_urls = CoreTap.new.formula_names.to_h { |f| [f, Formulary.factory(f).stable&.url] }
+      duplicate_formula_name = formula_urls.find do |name, url|
+        url == formula_url && name != formula.name
+      end&.first
+
+      return unless duplicate_formula_name
+
+      new_formula_problem "Possible duplicate, this formula has the same stable URL as `#{duplicate_formula_name}`"
+    end
+
+    sig { void }
     def audit_bottle_spec
       # special case: new versioned formulae should be audited
       return unless @new_formula_inclusive

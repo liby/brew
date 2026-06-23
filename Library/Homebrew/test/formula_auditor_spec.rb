@@ -1831,6 +1831,61 @@ RSpec.describe Homebrew::FormulaAuditor do
     end
   end
 
+  describe "#audit_duplicate_formula" do
+    let(:tap_path) { Pathname("#{dir}/duplicate-tap") }
+    let(:tap) do
+      instance_double(
+        Tap,
+        git?:             true,
+        core_tap?:        true,
+        git_repository:   instance_double(GitRepository, origin_branch_name: "main"),
+        audit_exceptions: {},
+        formula_renames:  {},
+        path:             tap_path,
+        name:             "test/tap",
+      )
+    end
+    let(:foo_path) { Pathname(tap_path/"Formula/foo.rb") }
+    let(:bar_path) { Pathname(tap_path/"Formula/bar.rb") }
+    let(:foo_formula) { build_formula_for_audit(name: "foo", tap:, tap_path:) }
+    let(:bar_formula) { build_formula_for_audit(name: "bar", tap:, tap_path:) }
+    let(:foo_name) { foo_formula.full_name }
+    let(:bar_name) { bar_formula.full_name }
+
+    before do
+      allow(CoreTap).to receive(:new).and_return(tap)
+      allow(tap).to receive(:formula_names).and_return([foo_name, bar_name])
+      allow(Formulary).to receive(:factory).and_call_original
+      allow(Formulary).to receive(:factory).with(foo_name).and_return(foo_formula)
+      allow(Formulary).to receive(:factory).with(bar_name).and_return(bar_formula)
+    end
+
+    specify "it warns if new formula uses the same URL as already existing package" do
+      fa = formula_auditor "duplicate-foo", <<~RUBY, new_formula: true, core_tap: true
+        class DuplicateFoo < Formula
+          url "https://brew.sh/foo-1.0.tar.gz"
+        end
+      RUBY
+
+      fa.audit_duplicate_formula
+
+      expect(fa.new_formula_problems.first[:message])
+        .to match("Possible duplicate, this formula has the same stable URL as `#{foo_name}`")
+    end
+
+    specify "it does not warn about duplicates if formula is not new" do
+      fa = formula_auditor "duplicate-foo", <<~RUBY, new_formula: false, core_tap: true
+        class DuplicateFoo < Formula
+          url "https://brew.sh/foo-1.0.tar.gz"
+        end
+      RUBY
+
+      fa.audit_duplicate_formula
+
+      expect(fa.new_formula_problems).to be_empty
+    end
+  end
+
   describe "#audit_conflicts" do
     before do
       # We don't really test the formula text retrieval here
